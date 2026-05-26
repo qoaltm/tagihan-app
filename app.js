@@ -1,0 +1,426 @@
+// ── Constants ─────────────────────────────────────────────
+const fmt = n => n ? 'Rp\u202F' + n.toLocaleString('id-ID') : '—';
+
+const COLORS = {
+  kredivo:   '#FF6B35',
+  spaylater: '#3B9EFF',
+  sp1:       '#A78BFA',
+  sp2:       '#34D399',
+  kosan:     '#FBBF24',
+  darurat:   '#F472B6',
+};
+const NAMES = {
+  kredivo:   'Kredivo',
+  spaylater: 'SPaylater',
+  sp1:       'SPayPinjam 1',
+  sp2:       'SPayPinjam 2',
+  kosan:     'Kosan',
+  darurat:   'Dana Darurat',
+};
+const KEYS        = ['kredivo','spaylater','sp1','sp2','kosan','darurat'];
+const CREDIT_KEYS = ['kredivo','spaylater','sp1','sp2'];
+
+// ── Badge definitions ─────────────────────────────────────
+// icon: lucide icon name
+const BADGE_DEFS = [
+  { id:'first',   icon:'award',        label:'Pertama!',    desc:'Bayar tagihan pertama',  req: s => s.totalPaid >= 1 },
+  { id:'3streak', icon:'flame',        label:'3 Streak',    desc:'3 bulan lunas berturut', req: s => s.streak >= 3 },
+  { id:'5streak', icon:'zap',          label:'5 Streak',    desc:'5 bulan lunas berturut', req: s => s.streak >= 5 },
+  { id:'half',    icon:'trending-up',  label:'Setengah!',   desc:'11 bulan lunas',         req: s => s.monthsPaid >= 11 },
+  { id:'almost',  icon:'target',       label:'Hampir!',     desc:'18 bulan lunas',         req: s => s.monthsPaid >= 18 },
+  { id:'done',    icon:'trophy',       label:'LUNAS SEMUA', desc:'Semua bulan lunas',      req: s => s.monthsPaid >= 21 },
+];
+
+const BADGE_COLORS = {
+  first: '#FBBF24', '3streak': '#FF6B35', '5streak': '#A78BFA',
+  half: '#34D399', almost: '#3B9EFF', done: '#FF6B35',
+};
+
+// ── State ─────────────────────────────────────────────────
+const paid = JSON.parse(localStorage.getItem('paid3') || '{}');
+function savePaid() { localStorage.setItem('paid3', JSON.stringify(paid)); }
+
+// ── Data generation ───────────────────────────────────────
+function generate() {
+  const data = [];
+  for (let i = 0; i < 21; i++) {
+    const d = new Date(2026, 5 + i, 1);
+    const label     = d.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+    const kredivo   = i < 12 ? 1244220 : 0;
+    const spaylater = i < 2 ? 440043 : i < 5 ? 394265 : i < 21 ? 134770 : 0;
+    const sp1       = i < 7  ? 497066 : 0;
+    const sp2       = i < 11 ? 664721 : 0;
+    const kosan     = 900000;
+    const darurat   = 200000;
+    const creditTotal = kredivo + spaylater + sp1 + sp2;
+    const total       = creditTotal + kosan + darurat;
+    data.push({ label, kredivo, spaylater, sp1, sp2, kosan, darurat, total, creditTotal });
+  }
+  return data;
+}
+
+const months          = generate();
+const grandCreditTotal = months.reduce((a, m) => a + m.creditTotal, 0);
+
+// ── Helpers ───────────────────────────────────────────────
+const paidKey = (i, k) => `${i}-${k}`;
+
+function isCreditPaidMonth(i) {
+  return CREDIT_KEYS
+    .filter(k => months[i][k] > 0)
+    .every(k => !!paid[paidKey(i, k)]);
+}
+
+// ── Stats & gamification ──────────────────────────────────
+function computeStats() {
+  let monthsPaid = 0, totalPaid = 0, streak = 0;
+  const earnedBadges = JSON.parse(localStorage.getItem('badges') || '[]');
+
+  for (let i = 0; i < months.length; i++) {
+    const active = CREDIT_KEYS.filter(k => months[i][k] > 0);
+    totalPaid += active.filter(k => !!paid[paidKey(i, k)]).length;
+    if (isCreditPaidMonth(i)) monthsPaid++;
+  }
+  // streak from latest consecutive
+  for (let i = months.length - 1; i >= 0; i--) {
+    if (isCreditPaidMonth(i)) streak++;
+    else break;
+  }
+
+  const xp        = totalPaid * 10;
+  const xpLevel   = Math.floor(xp / 100);
+  const xpInLevel = xp % 100;
+  const newBadges = [];
+
+  BADGE_DEFS.forEach(b => {
+    if (b.req({ monthsPaid, streak, totalPaid }) && !earnedBadges.includes(b.id)) {
+      earnedBadges.push(b.id);
+      newBadges.push(b);
+    }
+  });
+  if (newBadges.length) localStorage.setItem('badges', JSON.stringify(earnedBadges));
+
+  return { monthsPaid, streak, totalPaid, xp, xpLevel, xpInLevel, earnedBadges, newBadges };
+}
+
+// ── Theme ─────────────────────────────────────────────────
+function toggleTheme() {
+  document.documentElement.classList.toggle('dark');
+}
+
+// ── Lucide icon helper ────────────────────────────────────
+function iconSVG(name, cls = 'w-4 h-4') {
+  return `<i data-lucide="${name}" class="${cls}"></i>`;
+}
+
+// ── Summary cards ─────────────────────────────────────────
+function buildSummary() {
+  const stats = computeStats();
+  const sisaCreditTotal = months
+    .filter((_, i) => !isCreditPaidMonth(i))
+    .reduce((a, m) => a + m.creditTotal, 0);
+
+  const cards = [
+    {
+      label: 'Total Kredit',
+      val: fmt(grandCreditTotal),
+      color: 'text-brand',
+      note: 'excl. kosan & dana darurat',
+      icon: 'credit-card',
+      iconColor: '#FF6B35',
+    },
+    {
+      label: 'Sisa Belum Lunas',
+      val: fmt(sisaCreditTotal),
+      color: 'text-spaylater',
+      note: 'kredit saja',
+      icon: 'clock',
+      iconColor: '#3B9EFF',
+    },
+    {
+      label: 'Durasi',
+      val: '21 Bulan',
+      color: 'text-sp1',
+      note: 'Juni 2026 – Feb 2028',
+      icon: 'calendar',
+      iconColor: '#A78BFA',
+    },
+    {
+      label: 'Level XP',
+      val: `Lv. ${stats.xpLevel}`,
+      color: 'text-sp2',
+      note: `${stats.xp} XP total`,
+      icon: 'star',
+      iconColor: '#34D399',
+    },
+  ];
+
+  document.getElementById('summary').innerHTML = cards.map(c => `
+    <div class="bg-white dark:bg-[#13131C] border border-gray-200 dark:border-[#1E1E2A] rounded-xl p-3">
+      <div class="flex items-center gap-1.5 mb-1">
+        <i data-lucide="${c.icon}" class="w-3 h-3" style="color:${c.iconColor}"></i>
+        <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase">${c.label}</p>
+      </div>
+      <p class="font-sora font-semibold text-base ${c.color}">${c.val}</p>
+      <p class="text-[9px] text-gray-400 dark:text-gray-600 mt-0.5">${c.note}</p>
+    </div>
+  `).join('');
+  lucide.createIcons();
+}
+
+// ── Gamification UI ───────────────────────────────────────
+function updateGamUI(stats) {
+  document.getElementById('xp-bar').style.width   = stats.xpInLevel + '%';
+  document.getElementById('xp-label').textContent  = `${stats.xpInLevel} / 100`;
+  document.getElementById('month-bar').style.width = (stats.monthsPaid / 21 * 100).toFixed(1) + '%';
+  document.getElementById('month-label').textContent = `${stats.monthsPaid} / 21`;
+  document.getElementById('streak-num').textContent  = stats.streak;
+
+  const titles = [
+    [0,  'Mulai perjalananmu'],
+    [1,  'Bagus, terus jalan!'],
+    [3,  'Konsisten! Keren'],
+    [7,  'Setengah jalan, gas!'],
+    [15, 'Hampir selesai!'],
+    [21, 'LUNAS SEMUA! Mantap!'],
+  ];
+  let title = titles[0][1];
+  for (const [min, t] of titles) { if (stats.monthsPaid >= min) title = t; }
+  document.getElementById('gam-title').textContent = title;
+
+  const badgesEl = document.getElementById('badges');
+  badgesEl.innerHTML = '';
+  if (stats.earnedBadges.length === 0) {
+    badgesEl.innerHTML = `
+      <span class="text-[10px] text-gray-400 dark:text-gray-600 flex items-center gap-1">
+        <i data-lucide="lock" class="w-3 h-3"></i>
+        Belum ada badge — mulai bayar tagihan!
+      </span>`;
+  } else {
+    stats.earnedBadges.forEach(id => {
+      const b = BADGE_DEFS.find(x => x.id === id);
+      if (!b) return;
+      const color = BADGE_COLORS[id] || '#FF6B35';
+      badgesEl.innerHTML += `
+        <div class="badge-item flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-sora font-semibold"
+          style="border-color:${color}20; background:${color}15; color:${color}" title="${b.desc}">
+          <i data-lucide="${b.icon}" class="w-3 h-3"></i>
+          ${b.label}
+        </div>`;
+    });
+  }
+  lucide.createIcons();
+}
+
+// ── Confetti ──────────────────────────────────────────────
+function launchConfetti() {
+  const canvas = document.getElementById('confetti-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const pieces = Array.from({ length: 90 }, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * -120,
+    r: Math.random() * 6 + 3,
+    color: Object.values(COLORS)[Math.floor(Math.random() * 6)],
+    vx: (Math.random() - 0.5) * 4,
+    vy: Math.random() * 3 + 2,
+    rot: Math.random() * 360,
+    vr: (Math.random() - 0.5) * 8,
+  }));
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    pieces.forEach(p => {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot * Math.PI / 180);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r);
+      ctx.restore();
+      p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.vy += 0.06;
+    });
+    if (++frame < 140) requestAnimationFrame(draw);
+    else ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  draw();
+}
+
+// ── Toast ─────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg, iconName = 'check-circle') {
+  const t  = document.getElementById('toast');
+  const ic = document.getElementById('toast-icon');
+  const tx = document.getElementById('toast-text');
+  ic.setAttribute('data-lucide', iconName);
+  tx.textContent = msg;
+  lucide.createIcons();
+  t.style.opacity   = '1';
+  t.style.transform = 'translateX(-50%) translateY(0)';
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    t.style.opacity   = '0';
+    t.style.transform = 'translateX(-50%) translateY(10px)';
+  }, 2400);
+}
+
+// ── XP pop ────────────────────────────────────────────────
+function showXpPop(x, y) {
+  const el = document.createElement('div');
+  el.className = 'xp-pop flex items-center gap-1';
+  el.innerHTML = `<i data-lucide="zap" class="w-4 h-4"></i>+10 XP`;
+  el.style.left = x + 'px';
+  el.style.top  = y + 'px';
+  document.body.appendChild(el);
+  lucide.createIcons({ nodes: [el] });
+  setTimeout(() => el.remove(), 900);
+}
+
+// ── Build month list ──────────────────────────────────────
+function buildList() {
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+
+  months.forEach((m, i) => {
+    const allPaid   = isCreditPaidMonth(i);
+    const activeKeys = KEYS.filter(k => m[k] > 0);
+
+    const barSegs = activeKeys.map(k =>
+      `<div style="width:${(m[k]/m.total*100).toFixed(1)}%;background:${COLORS[k]}" class="h-full"></div>`
+    ).join('');
+
+    const rows = activeKeys.map(k => {
+      const isPaid  = !!paid[paidKey(i, k)];
+      const isKosan = k === 'kosan';
+      const isDar   = k === 'darurat';
+      const badgeEl = isKosan
+        ? `<span class="text-[9px] text-kosan ml-1 flex items-center gap-0.5">
+             <i data-lucide="home" class="w-2.5 h-2.5"></i>tetap</span>`
+        : isDar
+        ? `<span class="text-[9px] text-darurat ml-1 flex items-center gap-0.5">
+             <i data-lucide="piggy-bank" class="w-2.5 h-2.5"></i>tabungan</span>`
+        : '';
+
+      return `
+        <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-[#1e1e2a]
+          last:border-0 ${isPaid ? 'paid-row' : ''}" id="row-${i}-${k}">
+          <label class="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+            <input type="checkbox" ${isPaid ? 'checked' : ''}
+              onchange="togglePaid(event,${i},'${k}')"
+              class="rounded w-[18px] h-[18px] shrink-0" style="accent-color:#FF6B35" />
+            <span class="text-[11px] text-gray-600 dark:text-gray-400 flex items-center gap-1 flex-wrap
+              ${isPaid ? 'paid-label' : ''}" id="lbl-${i}-${k}">
+              ${NAMES[k]}${badgeEl}
+            </span>
+          </label>
+          <span class="text-[12px] font-medium ml-2 shrink-0" style="color:${COLORS[k]}">${fmt(m[k])}</span>
+        </div>`;
+    }).join('');
+
+    const creditTotalRow = `
+      <div class="flex justify-between pt-2 mt-1 border-t border-gray-100 dark:border-[#1e1e2a]">
+        <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1">
+          <i data-lucide="credit-card" class="w-3 h-3"></i>Total Kredit
+        </span>
+        <span class="font-sora font-bold text-sm text-brand">${fmt(m.creditTotal)}</span>
+      </div>
+      <div class="flex justify-between pt-1.5">
+        <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1">
+          <i data-lucide="receipt" class="w-3 h-3"></i>Total Semua
+        </span>
+        <span class="font-sora font-semibold text-sm text-gray-900 dark:text-white">${fmt(m.total)}</span>
+      </div>`;
+
+    const paidBadgeHTML = allPaid
+      ? `<span class="paid-badge-el ml-2 text-[9px] bg-green-100 dark:bg-green-900/40
+           text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded-full
+           tracking-wider font-sora font-semibold flex items-center gap-0.5">
+           <i data-lucide="check" class="w-2.5 h-2.5"></i>LUNAS</span>` : '';
+
+    const card = document.createElement('details');
+    card.className = `card-enter bg-white dark:bg-[#13131C] border rounded-xl overflow-hidden transition-all duration-200
+      ${allPaid ? 'border-green-300 dark:border-green-800' : 'border-gray-200 dark:border-[#1E1E2A]'}`;
+    card.id = `card-${i}`;
+    card.innerHTML = `
+      <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer select-none active:opacity-75">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1 flex-wrap">
+            <span class="font-sora font-semibold text-sm text-gray-900 dark:text-gray-100">${m.label}</span>
+            ${paidBadgeHTML}
+          </div>
+          <div class="h-1.5 rounded-full overflow-hidden flex mt-2 bg-gray-100 dark:bg-[#0f0f13]">${barSegs}</div>
+        </div>
+        <div class="text-right ml-4 flex-shrink-0 flex flex-col items-end gap-0.5">
+          <div class="font-sora font-bold text-sm text-brand">${fmt(m.creditTotal)}</div>
+          <div class="text-[9px] text-gray-400 dark:text-gray-600">${fmt(m.total)} total</div>
+          <i data-lucide="chevron-down" class="chevron w-3.5 h-3.5 text-gray-400 mt-0.5"></i>
+        </div>
+      </summary>
+      <div class="px-4 pb-3 border-t border-gray-100 dark:border-[#1e1e2a] pt-1">
+        ${rows}
+        ${creditTotalRow}
+      </div>
+    `;
+    list.appendChild(card);
+  });
+
+  lucide.createIcons();
+}
+
+// ── Toggle paid ───────────────────────────────────────────
+function togglePaid(event, i, k) {
+  paid[paidKey(i, k)] = event.target.checked;
+  savePaid();
+
+  const row = document.getElementById(`row-${i}-${k}`);
+  const lbl = document.getElementById(`lbl-${i}-${k}`);
+  if (paid[paidKey(i, k)]) {
+    row.classList.add('paid-row');
+    lbl.classList.add('paid-label');
+    const rect = event.target.getBoundingClientRect();
+    showXpPop(rect.left + window.scrollX - 8, rect.top + window.scrollY - 12);
+  } else {
+    row.classList.remove('paid-row');
+    lbl.classList.remove('paid-label');
+  }
+
+  const allPaid = isCreditPaidMonth(i);
+  const card    = document.getElementById(`card-${i}`);
+
+  // Update card border
+  if (allPaid) {
+    card.classList.remove('border-gray-200', 'dark:border-[#1E1E2A]');
+    card.classList.add('border-green-300', 'dark:border-green-800');
+  } else {
+    card.classList.remove('border-green-300', 'dark:border-green-800');
+    card.classList.add('border-gray-200', 'dark:border-[#1E1E2A]');
+  }
+
+  // Update LUNAS badge in summary
+  const summaryEl  = card.querySelector('summary');
+  const existBadge = summaryEl.querySelector('.paid-badge-el');
+  if (allPaid && !existBadge) {
+    const b = document.createElement('span');
+    b.className = 'paid-badge-el ml-2 text-[9px] bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded-full tracking-wider font-sora font-semibold flex items-center gap-0.5';
+    b.innerHTML = `<i data-lucide="check" class="w-2.5 h-2.5"></i>LUNAS`;
+    summaryEl.querySelector('.flex.items-center.gap-1').appendChild(b);
+    lucide.createIcons({ nodes: [b] });
+    launchConfetti();
+    showToast(months[i].label + ' LUNAS!', 'party-popper');
+  } else if (!allPaid && existBadge) {
+    existBadge.remove();
+  }
+
+  const stats = computeStats();
+  updateGamUI(stats);
+  buildSummary();
+
+  stats.newBadges.forEach((b, idx) => {
+    setTimeout(() => showToast('Badge baru: ' + b.label, b.icon), 700 + idx * 800);
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────
+buildSummary();
+buildList();
+updateGamUI(computeStats());
