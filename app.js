@@ -85,6 +85,17 @@ function emCustomTotal(i) { return emCustomList(i).reduce((a, c) => a + c.amount
 function emTotal(i)       { return KEYS.reduce((a, k) => a + emVal(i, k), 0) + emCustomTotal(i); }
 function emIncome(i)      { return income[i] || 0; }
 function emSisa(i)        { return emIncome(i) - emTotal(i); }
+
+// Jumlah yang SUDAH dibayar bulan ini (semua kategori aktif + custom bills)
+function paidSumAll(i) {
+  const catSum = KEYS.filter(k => !disabledKeys.includes(k))
+    .reduce((a, k) => a + (paid[paidKey(i, k)] ? emVal(i, k) : 0), 0);
+  const customSum = emCustomList(i)
+    .reduce((a, c) => a + (paid[paidKey(i, `custom-${c.id}`)] ? c.amount : 0), 0);
+  return catSum + customSum;
+}
+// Sisa tagihan bulan ini setelah dikurangi yang sudah dibayar
+function emRemaining(i) { return Math.max(0, emTotal(i) - paidSumAll(i)); }
 function visibleMonthIdx() { return months.map((_, i) => i).filter(i => !deletedMonths.includes(i)); }
 
 function currentMonthIndex() {
@@ -238,12 +249,14 @@ function buildSummary() {
   ];
 
   document.getElementById('summary').innerHTML = cards.map(c => `
-    <div class="bg-white dark:bg-[#13131C] border border-gray-200 dark:border-[#1E1E2A] rounded-xl p-3">
-      <div class="flex items-center gap-1.5 mb-1">
-        <i data-lucide="${c.icon}" class="w-3 h-3" style="color:${c.iconColor}"></i>
-        <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase">${c.label}</p>
+    <div class="bg-white dark:bg-[#13131C] border border-gray-200 dark:border-[#1E1E2A] rounded-xl p-3.5 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-[#2a2a38] transition-all duration-200">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style="background:${c.iconColor}18">
+          <i data-lucide="${c.icon}" class="w-3 h-3" style="color:${c.iconColor}"></i>
+        </span>
+        <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase truncate">${c.label}</p>
       </div>
-      <p class="font-sora font-semibold text-base ${c.color}">${c.val}</p>
+      <p class="font-sora font-semibold text-base ${c.color} tabular-nums">${c.val}</p>
       <p class="text-[9px] text-gray-400 dark:text-gray-600 mt-0.5">${c.note}</p>
     </div>
   `).join('');
@@ -457,7 +470,7 @@ function buildList() {
             class="p-1 text-gray-300 dark:text-gray-600 hover:text-brand shrink-0" aria-label="Edit">
             <i data-lucide="pencil" class="w-3 h-3"></i>
           </button>
-          <span class="text-[12px] font-medium ml-1 shrink-0" style="color:${COLORS[k]}">${fmt(emVal(i,k))}</span>
+          <span class="text-[12px] font-medium ml-1 shrink-0 tabular-nums" style="color:${COLORS[k]}">${fmt(emVal(i,k))}</span>
         </div>`;
     }).join('');
 
@@ -512,13 +525,13 @@ function buildList() {
         <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1">
           <i data-lucide="credit-card" class="w-3 h-3"></i>Total Kredit
         </span>
-        <span class="font-sora font-bold text-sm text-brand">${fmt(cTotal)}</span>
+        <span class="font-sora font-bold text-sm text-brand tabular-nums">${fmt(cTotal)}</span>
       </div>
       <div class="flex justify-between pt-1.5">
         <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1">
           <i data-lucide="receipt" class="w-3 h-3"></i>Total Semua
         </span>
-        <span class="font-sora font-semibold text-sm text-gray-900 dark:text-white">${fmt(tTotal)}</span>
+        <span class="font-sora font-semibold text-sm text-gray-900 dark:text-white tabular-nums">${fmt(tTotal)}</span>
       </div>`;
 
     const paidBadgeHTML = allPaid
@@ -527,8 +540,22 @@ function buildList() {
            tracking-wider font-sora font-semibold flex items-center gap-0.5">
            <i data-lucide="check" class="w-2.5 h-2.5"></i>LUNAS</span>` : '';
 
+    // Sisa tagihan bulan ini (berkurang tiap kali sebuah item dicentang lunas)
+    const paidSum   = paidSumAll(i);
+    const remaining = Math.max(0, tTotal - paidSum);
+    const payPct    = tTotal > 0 ? Math.min(100, (paidSum / tTotal) * 100) : 0;
+    const remainingHTML = remaining === 0 && tTotal > 0
+      ? `<span class="font-sora font-bold text-base text-green-500 tabular-nums" id="hdr-remaining-${i}">Lunas</span>`
+      : `<span class="font-sora font-bold text-base text-brand tabular-nums" id="hdr-remaining-${i}">${fmt(remaining)}</span>`;
+    const origHTML = paidSum > 0
+      ? `<span class="text-[10px] text-gray-400 dark:text-gray-600 line-through tabular-nums" id="hdr-orig-${i}">${fmt(tTotal)}</span>`
+      : '';
+    const captionHTML = paidSum > 0
+      ? `sisa dari ${fmt(tTotal)}`
+      : `${fmt(cTotal)} kredit`;
+
     const card = document.createElement('details');
-    card.className = `card-enter bg-white dark:bg-[#13131C] border rounded-xl overflow-hidden transition-all duration-200
+    card.className = `card-enter bg-white dark:bg-[#13131C] border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200
       ${allPaid ? 'border-green-300 dark:border-green-800' : 'border-gray-200 dark:border-[#1E1E2A]'}`;
     card.id = `card-${i}`;
     card.innerHTML = `
@@ -539,10 +566,16 @@ function buildList() {
             ${paidBadgeHTML}
           </div>
           <div class="h-1.5 rounded-full overflow-hidden flex mt-2 bg-gray-100 dark:bg-[#0f0f13]">${barSegs}</div>
+          <div class="h-1 rounded-full overflow-hidden bg-gray-100 dark:bg-[#0f0f13] mt-1" title="Progress pembayaran">
+            <div class="h-full bg-emerald-500 prog-fill" style="width:${payPct.toFixed(1)}%" id="payprog-${i}"></div>
+          </div>
         </div>
         <div class="text-right ml-4 flex-shrink-0 flex flex-col items-end gap-0.5">
-          <div class="font-sora font-bold text-sm text-brand">${fmt(cTotal)}</div>
-          <div class="text-[9px] text-gray-400 dark:text-gray-600">${fmt(tTotal)} total</div>
+          <div class="flex items-baseline gap-1.5" id="hdr-amt-${i}">
+            ${origHTML}
+            ${remainingHTML}
+          </div>
+          <div class="text-[9px] text-gray-400 dark:text-gray-600" id="hdr-caption-${i}">${captionHTML}</div>
           <div class="flex items-center gap-1 mt-0.5">
             <button type="button" onclick="deleteMonth(event,${i})"
               class="p-0.5 text-gray-300 dark:text-gray-600 hover:text-red-500" aria-label="Hapus bulan">
@@ -566,6 +599,41 @@ function buildList() {
   lucide.createIcons();
 }
 
+// ── Live-update the shrinking "sisa" amount in a month's header ─────────
+function updateCardHeader(i) {
+  const tTotal   = emTotal(i);
+  const paidSum  = paidSumAll(i);
+  const remaining = Math.max(0, tTotal - paidSum);
+  const payPct   = tTotal > 0 ? Math.min(100, (paidSum / tTotal) * 100) : 0;
+
+  const amtWrap = document.getElementById(`hdr-amt-${i}`);
+  const remEl   = document.getElementById(`hdr-remaining-${i}`);
+  const captEl  = document.getElementById(`hdr-caption-${i}`);
+  const progEl  = document.getElementById(`payprog-${i}`);
+
+  if (remEl) {
+    const isLunas = remaining === 0 && tTotal > 0;
+    remEl.textContent = isLunas ? 'Lunas' : fmt(remaining);
+    remEl.className = `font-sora font-bold text-base tabular-nums ${isLunas ? 'text-green-500' : 'text-brand'}`;
+  }
+  if (amtWrap) {
+    let origEl = document.getElementById(`hdr-orig-${i}`);
+    if (paidSum > 0) {
+      if (!origEl) {
+        origEl = document.createElement('span');
+        origEl.id = `hdr-orig-${i}`;
+        origEl.className = 'text-[10px] text-gray-400 dark:text-gray-600 line-through tabular-nums';
+        amtWrap.insertBefore(origEl, remEl);
+      }
+      origEl.textContent = fmt(tTotal);
+    } else if (origEl) {
+      origEl.remove();
+    }
+  }
+  if (captEl) captEl.textContent = paidSum > 0 ? `sisa dari ${fmt(tTotal)}` : `${fmt(emCreditTotal(i))} kredit`;
+  if (progEl) progEl.style.width = payPct.toFixed(1) + '%';
+}
+
 // ── Toggle paid ───────────────────────────────────────────
 function togglePaid(event, i, k) {
   paid[paidKey(i, k)] = event.target.checked;
@@ -582,6 +650,8 @@ function togglePaid(event, i, k) {
     row.classList.remove('paid-row');
     lbl.classList.remove('paid-label');
   }
+
+  updateCardHeader(i);
 
   const allPaid = isCreditPaidMonth(i);
   const card    = document.getElementById(`card-${i}`);
@@ -731,6 +801,8 @@ function toggleCustomPaid(event, i, id) {
   const lbl = document.getElementById(`lbl-${i}-${cKey}`);
   if (paid[paidKey(i, cKey)]) { row.classList.add('paid-row'); lbl.classList.add('paid-label'); }
   else { row.classList.remove('paid-row'); lbl.classList.remove('paid-label'); }
+  updateCardHeader(i);
+  buildSummary();
 }
 
 // ── Settings panel (kelola kategori & bulan) ──────────────
