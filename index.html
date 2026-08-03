@@ -64,7 +64,11 @@
         <p class="text-[11px] text-gray-400 dark:text-gray-600 mt-1 tracking-widest">Juni 2026 – selesai</p>
       </div>
       <!-- Dark/Light Toggle -->
-      <div class="flex items-center gap-2 mt-1">
+      <div class="flex items-center gap-3 mt-1">
+        <button onclick="openSettings()" aria-label="Pengaturan"
+          class="text-gray-400 dark:text-gray-500 hover:text-brand">
+          <i data-lucide="settings" class="w-4 h-4"></i>
+        </button>
         <i data-lucide="sun" class="w-4 h-4 text-yellow-400"></i>
         <button id="themeToggle" onclick="toggleTheme()"
           class="relative w-12 h-6 rounded-full bg-gray-200 dark:bg-gray-700 focus:outline-none transition-colors duration-300"
@@ -122,18 +126,40 @@
     <div class="grid grid-cols-2 gap-3 mb-5" id="summary"></div>
 
     <!-- Legend -->
-    <div class="flex flex-wrap gap-x-4 gap-y-2 mb-4">
-      <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-kredivo   inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Kredivo</span></div>
-      <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-spaylater inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPaylater</span></div>
-      <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sp1       inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPayPinjam 1</span></div>
-      <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sp2       inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPayPinjam 2</span></div>
-      <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-kosan     inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Kosan</span></div>
-      <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-darurat   inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Dana Darurat</span></div>
+    <div id="legend" class="flex flex-wrap gap-x-4 gap-y-2 mb-4">
+      <div data-legend="kredivo"   class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-kredivo   inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Kredivo</span></div>
+      <div data-legend="spaylater" class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-spaylater inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPaylater</span></div>
+      <div data-legend="sp1"       class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sp1       inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPayPinjam 1</span></div>
+      <div data-legend="sp2"       class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sp2       inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPayPinjam 2</span></div>
+      <div data-legend="kosan"     class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-kosan     inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Kosan</span></div>
+      <div data-legend="darurat"   class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-darurat   inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Dana Darurat</span></div>
     </div>
 
     <!-- Month List -->
     <div id="list" class="space-y-2"></div>
 
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-overlay" class="hidden fixed inset-0 z-[60] bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white dark:bg-[#13131C] w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-sora font-bold text-sm text-gray-900 dark:text-white">Pengaturan Tagihan</h2>
+        <button onclick="closeSettings()" aria-label="Tutup" class="text-gray-400 hover:text-gray-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase mb-1">Kategori Tagihan</p>
+      <div id="settings-categories" class="mb-4 divide-y divide-gray-100 dark:divide-[#1e1e2a]"></div>
+
+      <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase mb-1">Tampilkan Bulan</p>
+      <div id="settings-months" class="divide-y divide-gray-100 dark:divide-[#1e1e2a]"></div>
+
+      <p class="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
+        Matikan kategori/bulan untuk menyembunyikannya dari daftar & total. Semua perubahan tersimpan otomatis dan bisa dinyalakan kembali kapan saja.
+      </p>
+    </div>
   </div>
 
   <script src="app.js"></script>

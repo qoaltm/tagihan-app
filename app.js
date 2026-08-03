@@ -26,9 +26,9 @@ const BADGE_DEFS = [
   { id:'first',   icon:'award',        label:'Pertama!',    desc:'Bayar tagihan pertama',  req: s => s.totalPaid >= 1 },
   { id:'3streak', icon:'flame',        label:'3 Streak',    desc:'3 bulan lunas berturut', req: s => s.streak >= 3 },
   { id:'5streak', icon:'zap',          label:'5 Streak',    desc:'5 bulan lunas berturut', req: s => s.streak >= 5 },
-  { id:'half',    icon:'trending-up',  label:'Setengah!',   desc:'11 bulan lunas',         req: s => s.monthsPaid >= 11 },
-  { id:'almost',  icon:'target',       label:'Hampir!',     desc:'18 bulan lunas',         req: s => s.monthsPaid >= 18 },
-  { id:'done',    icon:'trophy',       label:'LUNAS SEMUA', desc:'Semua bulan lunas',      req: s => s.monthsPaid >= 21 },
+  { id:'half',    icon:'trending-up',  label:'Setengah!',   desc:'Setengah bulan lunas',   req: s => s.monthsPaid >= Math.ceil(s.total / 2) },
+  { id:'almost',  icon:'target',       label:'Hampir!',     desc:'Hampir semua lunas',     req: s => s.total > 1 && s.monthsPaid >= s.total - 1 },
+  { id:'done',    icon:'trophy',       label:'LUNAS SEMUA', desc:'Semua bulan lunas',      req: s => s.total > 0 && s.monthsPaid >= s.total },
 ];
 
 const BADGE_COLORS = {
@@ -39,6 +39,33 @@ const BADGE_COLORS = {
 // ── State ─────────────────────────────────────────────────
 const paid = JSON.parse(localStorage.getItem('paid3') || '{}');
 function savePaid() { localStorage.setItem('paid3', JSON.stringify(paid)); }
+
+// Default one-time cleanup: kosan dihapus & Juni-Juli 2026 dihapus (sudah lunas)
+const DEFAULT_DISABLED = ['kosan'];
+const DEFAULT_DELETED  = [0, 1];
+
+let overrides = JSON.parse(localStorage.getItem('overrides3') || 'null');
+if (overrides === null) { overrides = {}; localStorage.setItem('overrides3', JSON.stringify(overrides)); }
+
+let disabledKeys = JSON.parse(localStorage.getItem('disabledKeys3') || 'null');
+if (disabledKeys === null) { disabledKeys = [...DEFAULT_DISABLED]; localStorage.setItem('disabledKeys3', JSON.stringify(disabledKeys)); }
+
+let deletedMonths = JSON.parse(localStorage.getItem('deletedMonths3') || 'null');
+if (deletedMonths === null) { deletedMonths = [...DEFAULT_DELETED]; localStorage.setItem('deletedMonths3', JSON.stringify(deletedMonths)); }
+
+function saveOverrides()  { localStorage.setItem('overrides3', JSON.stringify(overrides)); }
+function saveDisabled()   { localStorage.setItem('disabledKeys3', JSON.stringify(disabledKeys)); }
+function saveDeleted()    { localStorage.setItem('deletedMonths3', JSON.stringify(deletedMonths)); }
+
+// Effective value of a bill (after custom edits / category disable)
+function emVal(i, k) {
+  if (disabledKeys.includes(k)) return 0;
+  const ov = overrides[paidKey(i, k)];
+  return ov !== undefined ? ov : months[i][k];
+}
+function emCreditTotal(i) { return CREDIT_KEYS.reduce((a, k) => a + emVal(i, k), 0); }
+function emTotal(i)       { return KEYS.reduce((a, k) => a + emVal(i, k), 0); }
+function visibleMonthIdx() { return months.map((_, i) => i).filter(i => !deletedMonths.includes(i)); }
 
 // ── Data generation ───────────────────────────────────────
 function generate() {
@@ -67,7 +94,7 @@ const paidKey = (i, k) => `${i}-${k}`;
 
 function isCreditPaidMonth(i) {
   return CREDIT_KEYS
-    .filter(k => months[i][k] > 0)
+    .filter(k => emVal(i, k) > 0)
     .every(k => !!paid[paidKey(i, k)]);
 }
 
@@ -76,14 +103,15 @@ function computeStats() {
   let monthsPaid = 0, totalPaid = 0, streak = 0;
   const earnedBadges = JSON.parse(localStorage.getItem('badges') || '[]');
 
-  for (let i = 0; i < months.length; i++) {
-    const active = CREDIT_KEYS.filter(k => months[i][k] > 0);
+  const vis = visibleMonthIdx();
+  for (const i of vis) {
+    const active = CREDIT_KEYS.filter(k => emVal(i, k) > 0);
     totalPaid += active.filter(k => !!paid[paidKey(i, k)]).length;
     if (isCreditPaidMonth(i)) monthsPaid++;
   }
-  // streak from latest consecutive
-  for (let i = months.length - 1; i >= 0; i--) {
-    if (isCreditPaidMonth(i)) streak++;
+  // streak from latest consecutive (among visible months)
+  for (let vi = vis.length - 1; vi >= 0; vi--) {
+    if (isCreditPaidMonth(vis[vi])) streak++;
     else break;
   }
 
@@ -91,16 +119,17 @@ function computeStats() {
   const xpLevel   = Math.floor(xp / 100);
   const xpInLevel = xp % 100;
   const newBadges = [];
+  const total     = vis.length;
 
   BADGE_DEFS.forEach(b => {
-    if (b.req({ monthsPaid, streak, totalPaid }) && !earnedBadges.includes(b.id)) {
+    if (b.req({ monthsPaid, streak, totalPaid, total }) && !earnedBadges.includes(b.id)) {
       earnedBadges.push(b.id);
       newBadges.push(b);
     }
   });
   if (newBadges.length) localStorage.setItem('badges', JSON.stringify(earnedBadges));
 
-  return { monthsPaid, streak, totalPaid, xp, xpLevel, xpInLevel, earnedBadges, newBadges };
+  return { monthsPaid, streak, totalPaid, xp, xpLevel, xpInLevel, earnedBadges, newBadges, total };
 }
 
 // ── Theme ─────────────────────────────────────────────────
@@ -116,14 +145,19 @@ function iconSVG(name, cls = 'w-4 h-4') {
 // ── Summary cards ─────────────────────────────────────────
 function buildSummary() {
   const stats = computeStats();
-  const sisaCreditTotal = months
-    .filter((_, i) => !isCreditPaidMonth(i))
-    .reduce((a, m) => a + m.creditTotal, 0);
+  const vis = visibleMonthIdx();
+  const grandCreditTotalNow = vis.reduce((a, i) => a + emCreditTotal(i), 0);
+  const sisaCreditTotal = vis
+    .filter(i => !isCreditPaidMonth(i))
+    .reduce((a, i) => a + emCreditTotal(i), 0);
+  const rangeNote = vis.length
+    ? `${months[vis[0]].label} – ${months[vis[vis.length - 1]].label}`
+    : 'Belum ada tagihan';
 
   const cards = [
     {
       label: 'Total Kredit',
-      val: fmt(grandCreditTotal),
+      val: fmt(grandCreditTotalNow),
       color: 'text-brand',
       note: 'excl. kosan & dana darurat',
       icon: 'credit-card',
@@ -139,9 +173,9 @@ function buildSummary() {
     },
     {
       label: 'Durasi',
-      val: '21 Bulan',
+      val: `${vis.length} Bulan`,
       color: 'text-sp1',
-      note: 'Juni 2026 – Feb 2028',
+      note: rangeNote,
       icon: 'calendar',
       iconColor: '#A78BFA',
     },
@@ -172,20 +206,22 @@ function buildSummary() {
 function updateGamUI(stats) {
   document.getElementById('xp-bar').style.width   = stats.xpInLevel + '%';
   document.getElementById('xp-label').textContent  = `${stats.xpInLevel} / 100`;
-  document.getElementById('month-bar').style.width = (stats.monthsPaid / 21 * 100).toFixed(1) + '%';
-  document.getElementById('month-label').textContent = `${stats.monthsPaid} / 21`;
+  const totalM = stats.total || 1;
+  document.getElementById('month-bar').style.width = (stats.monthsPaid / totalM * 100).toFixed(1) + '%';
+  document.getElementById('month-label').textContent = `${stats.monthsPaid} / ${stats.total}`;
   document.getElementById('streak-num').textContent  = stats.streak;
 
+  const pct = stats.total ? stats.monthsPaid / stats.total : 0;
   const titles = [
-    [0,  'Mulai perjalananmu'],
-    [1,  'Bagus, terus jalan!'],
-    [3,  'Konsisten! Keren'],
-    [7,  'Setengah jalan, gas!'],
-    [15, 'Hampir selesai!'],
-    [21, 'LUNAS SEMUA! Mantap!'],
+    [0,    'Mulai perjalananmu'],
+    [0.05, 'Bagus, terus jalan!'],
+    [0.15, 'Konsisten! Keren'],
+    [0.33, 'Setengah jalan, gas!'],
+    [0.7,  'Hampir selesai!'],
+    [1,    'LUNAS SEMUA! Mantap!'],
   ];
   let title = titles[0][1];
-  for (const [min, t] of titles) { if (stats.monthsPaid >= min) title = t; }
+  for (const [min, t] of titles) { if (pct >= min) title = t; }
   document.getElementById('gam-title').textContent = title;
 
   const badgesEl = document.getElementById('badges');
@@ -282,17 +318,22 @@ function buildList() {
   list.innerHTML = '';
 
   months.forEach((m, i) => {
-    const allPaid   = isCreditPaidMonth(i);
-    const activeKeys = KEYS.filter(k => m[k] > 0);
+    if (deletedMonths.includes(i)) return;
+
+    const allPaid    = isCreditPaidMonth(i);
+    const cTotal      = emCreditTotal(i);
+    const tTotal       = emTotal(i);
+    const activeKeys = KEYS.filter(k => !disabledKeys.includes(k) && emVal(i, k) > 0);
 
     const barSegs = activeKeys.map(k =>
-      `<div style="width:${(m[k]/m.total*100).toFixed(1)}%;background:${COLORS[k]}" class="h-full"></div>`
+      `<div style="width:${(emVal(i,k)/(tTotal||1)*100).toFixed(1)}%;background:${COLORS[k]}" class="h-full"></div>`
     ).join('');
 
     const rows = activeKeys.map(k => {
       const isPaid  = !!paid[paidKey(i, k)];
       const isKosan = k === 'kosan';
       const isDar   = k === 'darurat';
+      const isEdited = overrides[paidKey(i, k)] !== undefined;
       const badgeEl = isKosan
         ? `<span class="text-[9px] text-kosan ml-1 flex items-center gap-0.5">
              <i data-lucide="home" class="w-2.5 h-2.5"></i>tetap</span>`
@@ -300,6 +341,8 @@ function buildList() {
         ? `<span class="text-[9px] text-darurat ml-1 flex items-center gap-0.5">
              <i data-lucide="piggy-bank" class="w-2.5 h-2.5"></i>tabungan</span>`
         : '';
+      const editedDot = isEdited
+        ? `<span class="w-1.5 h-1.5 rounded-full bg-brand ml-1" title="Nilai custom"></span>` : '';
 
       return `
         <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-[#1e1e2a]
@@ -310,10 +353,14 @@ function buildList() {
               class="rounded w-[18px] h-[18px] shrink-0" style="accent-color:#FF6B35" />
             <span class="text-[11px] text-gray-600 dark:text-gray-400 flex items-center gap-1 flex-wrap
               ${isPaid ? 'paid-label' : ''}" id="lbl-${i}-${k}">
-              ${NAMES[k]}${badgeEl}
+              ${NAMES[k]}${badgeEl}${editedDot}
             </span>
           </label>
-          <span class="text-[12px] font-medium ml-2 shrink-0" style="color:${COLORS[k]}">${fmt(m[k])}</span>
+          <button type="button" onclick="editAmount(event,${i},'${k}')"
+            class="p-1 text-gray-300 dark:text-gray-600 hover:text-brand shrink-0" aria-label="Edit">
+            <i data-lucide="pencil" class="w-3 h-3"></i>
+          </button>
+          <span class="text-[12px] font-medium ml-1 shrink-0" style="color:${COLORS[k]}">${fmt(emVal(i,k))}</span>
         </div>`;
     }).join('');
 
@@ -322,13 +369,13 @@ function buildList() {
         <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1">
           <i data-lucide="credit-card" class="w-3 h-3"></i>Total Kredit
         </span>
-        <span class="font-sora font-bold text-sm text-brand">${fmt(m.creditTotal)}</span>
+        <span class="font-sora font-bold text-sm text-brand">${fmt(cTotal)}</span>
       </div>
       <div class="flex justify-between pt-1.5">
         <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1">
           <i data-lucide="receipt" class="w-3 h-3"></i>Total Semua
         </span>
-        <span class="font-sora font-semibold text-sm text-gray-900 dark:text-white">${fmt(m.total)}</span>
+        <span class="font-sora font-semibold text-sm text-gray-900 dark:text-white">${fmt(tTotal)}</span>
       </div>`;
 
     const paidBadgeHTML = allPaid
@@ -351,9 +398,15 @@ function buildList() {
           <div class="h-1.5 rounded-full overflow-hidden flex mt-2 bg-gray-100 dark:bg-[#0f0f13]">${barSegs}</div>
         </div>
         <div class="text-right ml-4 flex-shrink-0 flex flex-col items-end gap-0.5">
-          <div class="font-sora font-bold text-sm text-brand">${fmt(m.creditTotal)}</div>
-          <div class="text-[9px] text-gray-400 dark:text-gray-600">${fmt(m.total)} total</div>
-          <i data-lucide="chevron-down" class="chevron w-3.5 h-3.5 text-gray-400 mt-0.5"></i>
+          <div class="font-sora font-bold text-sm text-brand">${fmt(cTotal)}</div>
+          <div class="text-[9px] text-gray-400 dark:text-gray-600">${fmt(tTotal)} total</div>
+          <div class="flex items-center gap-1 mt-0.5">
+            <button type="button" onclick="deleteMonth(event,${i})"
+              class="p-0.5 text-gray-300 dark:text-gray-600 hover:text-red-500" aria-label="Hapus bulan">
+              <i data-lucide="trash-2" class="w-3 h-3"></i>
+            </button>
+            <i data-lucide="chevron-down" class="chevron w-3.5 h-3.5 text-gray-400"></i>
+          </div>
         </div>
       </summary>
       <div class="px-4 pb-3 border-t border-gray-100 dark:border-[#1e1e2a] pt-1">
@@ -420,7 +473,110 @@ function togglePaid(event, i, k) {
   });
 }
 
+// ── Edit / delete actions ─────────────────────────────────
+function refreshAll() {
+  buildSummary();
+  buildList();
+  updateGamUI(computeStats());
+  updateLegend();
+}
+
+function updateLegend() {
+  KEYS.forEach(k => {
+    const el = document.querySelector(`[data-legend="${k}"]`);
+    if (el) el.style.display = disabledKeys.includes(k) ? 'none' : '';
+  });
+}
+
+function editAmount(event, i, k) {
+  event.stopPropagation();
+  event.preventDefault();
+  const current = emVal(i, k);
+  const input = prompt(`Edit jumlah ${NAMES[k]} — ${months[i].label}\n(kosongkan & OK untuk reset ke default)`, current);
+  if (input === null) return; // batal
+  const trimmed = input.trim();
+  if (trimmed === '') {
+    delete overrides[paidKey(i, k)];
+    saveOverrides();
+    showToast('Dikembalikan ke default', 'rotate-ccw');
+    refreshAll();
+    return;
+  }
+  const val = parseInt(trimmed.replace(/[^\d]/g, ''), 10);
+  if (isNaN(val) || val < 0) {
+    showToast('Nilai tidak valid', 'alert-triangle');
+    return;
+  }
+  overrides[paidKey(i, k)] = val;
+  saveOverrides();
+  showToast('Tagihan diperbarui', 'pencil');
+  refreshAll();
+}
+
+function deleteMonth(event, i) {
+  event.stopPropagation();
+  event.preventDefault();
+  if (!confirm(`Hapus tagihan ${months[i].label}? Bisa dimunculkan lagi lewat Pengaturan.`)) return;
+  if (!deletedMonths.includes(i)) deletedMonths.push(i);
+  saveDeleted();
+  showToast(months[i].label + ' dihapus', 'trash-2');
+  refreshAll();
+}
+
+// ── Settings panel (kelola kategori & bulan) ──────────────
+function openSettings() {
+  renderSettings();
+  document.getElementById('settings-overlay').classList.remove('hidden');
+}
+function closeSettings() {
+  document.getElementById('settings-overlay').classList.add('hidden');
+}
+function toggleCategory(key) {
+  const idx = disabledKeys.indexOf(key);
+  if (idx === -1) {
+    if (!confirm(`Nonaktifkan semua tagihan ${NAMES[key]} di semua bulan?`)) return;
+    disabledKeys.push(key);
+  } else {
+    disabledKeys.splice(idx, 1);
+  }
+  saveDisabled();
+  refreshAll();
+  renderSettings();
+}
+function toggleMonthVisibility(i) {
+  const idx = deletedMonths.indexOf(i);
+  if (idx === -1) deletedMonths.push(i);
+  else deletedMonths.splice(idx, 1);
+  saveDeleted();
+  refreshAll();
+  renderSettings();
+}
+function renderSettings() {
+  const catEl = document.getElementById('settings-categories');
+  catEl.innerHTML = KEYS.map(k => `
+    <label class="flex items-center justify-between py-1.5 text-[12px] cursor-pointer">
+      <span class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-sm inline-block" style="background:${COLORS[k]}"></span>
+        ${NAMES[k]}
+      </span>
+      <input type="checkbox" ${disabledKeys.includes(k) ? '' : 'checked'}
+        onchange="toggleCategory('${k}')" style="accent-color:#FF6B35" class="w-4 h-4" />
+    </label>
+  `).join('');
+
+  const moEl = document.getElementById('settings-months');
+  moEl.innerHTML = months.map((m, i) => `
+    <label class="flex items-center justify-between py-1.5 text-[12px] cursor-pointer">
+      <span>${m.label}</span>
+      <input type="checkbox" ${deletedMonths.includes(i) ? '' : 'checked'}
+        onchange="toggleMonthVisibility(${i})" style="accent-color:#FF6B35" class="w-4 h-4" />
+    </label>
+  `).join('');
+  lucide.createIcons();
+}
+
 // ── Init ──────────────────────────────────────────────────
 buildSummary();
 buildList();
 updateGamUI(computeStats());
+updateLegend();
