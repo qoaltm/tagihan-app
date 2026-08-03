@@ -57,6 +57,22 @@ function saveOverrides()  { localStorage.setItem('overrides3', JSON.stringify(ov
 function saveDisabled()   { localStorage.setItem('disabledKeys3', JSON.stringify(disabledKeys)); }
 function saveDeleted()    { localStorage.setItem('deletedMonths3', JSON.stringify(deletedMonths)); }
 
+// Pemasukan per bulan
+let income = JSON.parse(localStorage.getItem('income3') || '{}');
+function saveIncome() { localStorage.setItem('income3', JSON.stringify(income)); }
+
+// Tagihan custom tambahan per bulan: { i: [{id,name,amount}] }
+let customBills = JSON.parse(localStorage.getItem('customBills3') || '{}');
+function saveCustomBills() { localStorage.setItem('customBills3', JSON.stringify(customBills)); }
+
+// Tanggal jatuh tempo per kategori (1-31)
+const DEFAULT_DUE_DAYS = { kredivo: 5, spaylater: 25, sp1: 10, sp2: 15, kosan: 1, darurat: 1 };
+let dueDays = JSON.parse(localStorage.getItem('dueDays3') || 'null');
+if (dueDays === null) { dueDays = { ...DEFAULT_DUE_DAYS }; localStorage.setItem('dueDays3', JSON.stringify(dueDays)); }
+function saveDueDays() { localStorage.setItem('dueDays3', JSON.stringify(dueDays)); }
+
+let notifEnabled = localStorage.getItem('notifEnabled3') === '1';
+
 // Effective value of a bill (after custom edits / category disable)
 function emVal(i, k) {
   if (disabledKeys.includes(k)) return 0;
@@ -64,8 +80,28 @@ function emVal(i, k) {
   return ov !== undefined ? ov : months[i][k];
 }
 function emCreditTotal(i) { return CREDIT_KEYS.reduce((a, k) => a + emVal(i, k), 0); }
-function emTotal(i)       { return KEYS.reduce((a, k) => a + emVal(i, k), 0); }
+function emCustomList(i)  { return customBills[i] || []; }
+function emCustomTotal(i) { return emCustomList(i).reduce((a, c) => a + c.amount, 0); }
+function emTotal(i)       { return KEYS.reduce((a, k) => a + emVal(i, k), 0) + emCustomTotal(i); }
+function emIncome(i)      { return income[i] || 0; }
+function emSisa(i)        { return emIncome(i) - emTotal(i); }
 function visibleMonthIdx() { return months.map((_, i) => i).filter(i => !deletedMonths.includes(i)); }
+
+function currentMonthIndex() {
+  const now = new Date();
+  return months.findIndex(m => m.date.getFullYear() === now.getFullYear() && m.date.getMonth() === now.getMonth());
+}
+
+// Info jatuh tempo (hanya relevan utk bulan berjalan, item belum lunas)
+function dueInfo(i, k) {
+  if (i !== currentMonthIndex()) return null;
+  const day = dueDays[k];
+  if (!day) return null;
+  const now = new Date(); now.setHours(0,0,0,0);
+  const due = new Date(now.getFullYear(), now.getMonth(), day);
+  const diffDays = Math.round((due - now) / 86400000);
+  return { diffDays, overdue: diffDays < 0 };
+}
 
 // ── Data generation ───────────────────────────────────────
 function generate() {
@@ -81,7 +117,7 @@ function generate() {
     const darurat   = 200000;
     const creditTotal = kredivo + spaylater + sp1 + sp2;
     const total       = creditTotal + kosan + darurat;
-    data.push({ label, kredivo, spaylater, sp1, sp2, kosan, darurat, total, creditTotal });
+    data.push({ label, date: d, kredivo, spaylater, sp1, sp2, kosan, darurat, total, creditTotal });
   }
   return data;
 }
@@ -154,6 +190,10 @@ function buildSummary() {
     ? `${months[vis[0]].label} – ${months[vis[vis.length - 1]].label}`
     : 'Belum ada tagihan';
 
+  const visUnpaid = vis.filter(i => !isCreditPaidMonth(i));
+  const proyeksiVal  = visUnpaid.length === 0 ? 'Lunas!' : months[visUnpaid[visUnpaid.length - 1]].label;
+  const proyeksiNote = visUnpaid.length === 0 ? 'semua kredit selesai' : `${visUnpaid.length} bulan tersisa`;
+
   const cards = [
     {
       label: 'Total Kredit',
@@ -187,6 +227,14 @@ function buildSummary() {
       icon: 'star',
       iconColor: '#34D399',
     },
+    {
+      label: 'Proyeksi Lunas',
+      val: proyeksiVal,
+      color: 'text-darurat',
+      note: proyeksiNote,
+      icon: 'flag',
+      iconColor: '#F472B6',
+    },
   ];
 
   document.getElementById('summary').innerHTML = cards.map(c => `
@@ -200,6 +248,47 @@ function buildSummary() {
     </div>
   `).join('');
   lucide.createIcons();
+  buildAlerts(vis);
+  buildTrendChart(vis);
+}
+
+// ── Tunggakan alert ────────────────────────────────────────
+function buildAlerts(vis) {
+  const el = document.getElementById('alerts');
+  if (!el) return;
+  const curIdx = currentMonthIndex();
+  const overdueMonths = curIdx === -1 ? [] : vis.filter(i => i < curIdx && !isCreditPaidMonth(i));
+  if (overdueMonths.length === 0) { el.innerHTML = ''; return; }
+  const labels = overdueMonths.map(i => months[i].label).join(', ');
+  el.innerHTML = `
+    <div class="flex items-start gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5 mb-4">
+      <i data-lucide="alert-triangle" class="w-4 h-4 text-red-500 shrink-0 mt-0.5"></i>
+      <p class="text-[11px] text-red-600 dark:text-red-400 leading-relaxed">
+        Ada <b>${overdueMonths.length} bulan</b> sebelumnya yang belum lunas: ${labels}
+      </p>
+    </div>`;
+  lucide.createIcons({ nodes: [el] });
+}
+
+// ── Tren pengeluaran ───────────────────────────────────────
+function buildTrendChart(vis) {
+  const el = document.getElementById('trend-chart');
+  if (!el) return;
+  if (vis.length === 0) { el.innerHTML = ''; return; }
+  const totals = vis.map(i => emTotal(i));
+  const max = Math.max(...totals, 1);
+  el.innerHTML = `
+    <div class="flex items-end gap-1.5 overflow-x-auto pb-1" style="min-height:90px">
+      ${vis.map((i, idx) => {
+        const h = Math.max(4, Math.round(totals[idx] / max * 72));
+        const short = months[i].label.split(' ')[0].slice(0, 3);
+        return `
+          <div class="flex flex-col items-center gap-1 shrink-0" style="width:20px" title="${months[i].label}: ${fmt(totals[idx])}">
+            <div style="height:${h}px;width:10px;background:${isCreditPaidMonth(i) ? '#34D399' : '#FF6B35'}" class="rounded-sm"></div>
+            <span class="text-[7px] text-gray-400 dark:text-gray-600 rotate-0">${short}</span>
+          </div>`;
+      }).join('')}
+    </div>`;
 }
 
 // ── Gamification UI ───────────────────────────────────────
@@ -327,6 +416,8 @@ function buildList() {
 
     const barSegs = activeKeys.map(k =>
       `<div style="width:${(emVal(i,k)/(tTotal||1)*100).toFixed(1)}%;background:${COLORS[k]}" class="h-full"></div>`
+    ).join('') + emCustomList(i).map(c =>
+      `<div style="width:${(c.amount/(tTotal||1)*100).toFixed(1)}%;background:#9CA3AF" class="h-full"></div>`
     ).join('');
 
     const rows = activeKeys.map(k => {
@@ -343,6 +434,12 @@ function buildList() {
         : '';
       const editedDot = isEdited
         ? `<span class="w-1.5 h-1.5 rounded-full bg-brand ml-1" title="Nilai custom"></span>` : '';
+      const due = !isPaid ? dueInfo(i, k) : null;
+      const dueEl = (due && due.diffDays <= 5)
+        ? due.overdue
+          ? `<span class="text-[9px] text-red-500 ml-1 flex items-center gap-0.5"><i data-lucide="alert-circle" class="w-2.5 h-2.5"></i>Telat ${Math.abs(due.diffDays)}h</span>`
+          : `<span class="text-[9px] text-orange-500 ml-1 flex items-center gap-0.5"><i data-lucide="bell" class="w-2.5 h-2.5"></i>H-${due.diffDays}</span>`
+        : '';
 
       return `
         <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-[#1e1e2a]
@@ -353,7 +450,7 @@ function buildList() {
               class="rounded w-[18px] h-[18px] shrink-0" style="accent-color:#FF6B35" />
             <span class="text-[11px] text-gray-600 dark:text-gray-400 flex items-center gap-1 flex-wrap
               ${isPaid ? 'paid-label' : ''}" id="lbl-${i}-${k}">
-              ${NAMES[k]}${badgeEl}${editedDot}
+              ${NAMES[k]}${badgeEl}${editedDot}${dueEl}
             </span>
           </label>
           <button type="button" onclick="editAmount(event,${i},'${k}')"
@@ -363,6 +460,52 @@ function buildList() {
           <span class="text-[12px] font-medium ml-1 shrink-0" style="color:${COLORS[k]}">${fmt(emVal(i,k))}</span>
         </div>`;
     }).join('');
+
+    const customRows = emCustomList(i).map(c => {
+      const cKey = `custom-${c.id}`;
+      const isPaid = !!paid[paidKey(i, cKey)];
+      return `
+        <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-[#1e1e2a]
+          last:border-0 ${isPaid ? 'paid-row' : ''}" id="row-${i}-${cKey}">
+          <label class="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+            <input type="checkbox" ${isPaid ? 'checked' : ''}
+              onchange="toggleCustomPaid(event,${i},'${c.id}')"
+              class="rounded w-[18px] h-[18px] shrink-0" style="accent-color:#FF6B35" />
+            <span class="text-[11px] text-gray-600 dark:text-gray-400 flex items-center gap-1 flex-wrap
+              ${isPaid ? 'paid-label' : ''}" id="lbl-${i}-${cKey}">
+              ${c.name}<span class="text-[9px] text-gray-400 ml-1">custom</span>
+            </span>
+          </label>
+          <button type="button" onclick="editCustomBill(event,${i},'${c.id}')"
+            class="p-1 text-gray-300 dark:text-gray-600 hover:text-brand shrink-0" aria-label="Edit"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+          <button type="button" onclick="deleteCustomBill(event,${i},'${c.id}')"
+            class="p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 shrink-0" aria-label="Hapus"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+          <span class="text-[12px] font-medium ml-1 shrink-0 text-gray-700 dark:text-gray-300">${fmt(c.amount)}</span>
+        </div>`;
+    }).join('');
+
+    const addRow = `
+      <button type="button" onclick="addCustomBill(event,${i})"
+        class="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-gray-400 dark:text-gray-500 hover:text-brand border-b border-gray-100 dark:border-[#1e1e2a] last:border-0">
+        <i data-lucide="plus" class="w-3 h-3"></i>Tambah tagihan custom
+      </button>`;
+
+    const inc = emIncome(i);
+    const sisa = emSisa(i);
+    const incomeRow = `
+      <div class="flex items-center justify-between pt-2 mt-1 border-t border-gray-100 dark:border-[#1e1e2a]">
+        <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1">
+          <i data-lucide="wallet" class="w-3 h-3"></i>Pemasukan
+        </span>
+        <button type="button" onclick="editIncome(event,${i})" class="flex items-center gap-1 text-[12px] font-medium text-sp2">
+          ${fmt(inc)}<i data-lucide="pencil" class="w-2.5 h-2.5 text-gray-300"></i>
+        </button>
+      </div>
+      ${inc > 0 ? `
+      <div class="flex justify-between pt-1">
+        <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest">Sisa</span>
+        <span class="font-sora font-semibold text-sm ${sisa >= 0 ? 'text-sp2' : 'text-red-500'}">${fmt(sisa)}</span>
+      </div>` : ''}`;
 
     const creditTotalRow = `
       <div class="flex justify-between pt-2 mt-1 border-t border-gray-100 dark:border-[#1e1e2a]">
@@ -411,7 +554,10 @@ function buildList() {
       </summary>
       <div class="px-4 pb-3 border-t border-gray-100 dark:border-[#1e1e2a] pt-1">
         ${rows}
+        ${customRows}
+        ${addRow}
         ${creditTotalRow}
+        ${incomeRow}
       </div>
     `;
     list.appendChild(card);
@@ -523,6 +669,70 @@ function deleteMonth(event, i) {
   refreshAll();
 }
 
+function editIncome(event, i) {
+  event.stopPropagation();
+  event.preventDefault();
+  const input = prompt(`Pemasukan — ${months[i].label}`, emIncome(i) || '');
+  if (input === null) return;
+  const val = parseInt(input.replace(/[^\d]/g, ''), 10);
+  income[i] = isNaN(val) ? 0 : val;
+  saveIncome();
+  showToast('Pemasukan diperbarui', 'wallet');
+  refreshAll();
+}
+
+function addCustomBill(event, i) {
+  event.stopPropagation();
+  event.preventDefault();
+  const name = prompt('Nama tagihan baru:');
+  if (!name || !name.trim()) return;
+  const amountStr = prompt(`Jumlah untuk "${name.trim()}":`);
+  if (amountStr === null) return;
+  const amount = parseInt(amountStr.replace(/[^\d]/g, ''), 10);
+  if (isNaN(amount) || amount < 0) { showToast('Nilai tidak valid', 'alert-triangle'); return; }
+  if (!customBills[i]) customBills[i] = [];
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  customBills[i].push({ id, name: name.trim(), amount });
+  saveCustomBills();
+  showToast('Tagihan custom ditambahkan', 'plus');
+  refreshAll();
+}
+
+function editCustomBill(event, i, id) {
+  event.stopPropagation();
+  event.preventDefault();
+  const bill = (customBills[i] || []).find(c => c.id === id);
+  if (!bill) return;
+  const amountStr = prompt(`Edit jumlah "${bill.name}":`, bill.amount);
+  if (amountStr === null) return;
+  const val = parseInt(amountStr.replace(/[^\d]/g, ''), 10);
+  if (isNaN(val) || val < 0) { showToast('Nilai tidak valid', 'alert-triangle'); return; }
+  bill.amount = val;
+  saveCustomBills();
+  showToast('Tagihan custom diperbarui', 'pencil');
+  refreshAll();
+}
+
+function deleteCustomBill(event, i, id) {
+  event.stopPropagation();
+  event.preventDefault();
+  if (!confirm('Hapus tagihan custom ini?')) return;
+  customBills[i] = (customBills[i] || []).filter(c => c.id !== id);
+  saveCustomBills();
+  showToast('Tagihan custom dihapus', 'trash-2');
+  refreshAll();
+}
+
+function toggleCustomPaid(event, i, id) {
+  const cKey = `custom-${id}`;
+  paid[paidKey(i, cKey)] = event.target.checked;
+  savePaid();
+  const row = document.getElementById(`row-${i}-${cKey}`);
+  const lbl = document.getElementById(`lbl-${i}-${cKey}`);
+  if (paid[paidKey(i, cKey)]) { row.classList.add('paid-row'); lbl.classList.add('paid-label'); }
+  else { row.classList.remove('paid-row'); lbl.classList.remove('paid-label'); }
+}
+
 // ── Settings panel (kelola kategori & bulan) ──────────────
 function openSettings() {
   renderSettings();
@@ -572,7 +782,99 @@ function renderSettings() {
         onchange="toggleMonthVisibility(${i})" style="accent-color:#FF6B35" class="w-4 h-4" />
     </label>
   `).join('');
+
+  const dueEl = document.getElementById('settings-due');
+  dueEl.innerHTML = KEYS.filter(k => !disabledKeys.includes(k)).map(k => `
+    <div class="flex items-center justify-between py-1.5 text-[12px]">
+      <span class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-sm inline-block" style="background:${COLORS[k]}"></span>
+        ${NAMES[k]}
+      </span>
+      <input type="number" min="1" max="31" value="${dueDays[k] || ''}"
+        onchange="setDueDay('${k}', this.value)"
+        class="w-14 text-right text-[12px] px-2 py-1 rounded-md border border-gray-200 dark:border-[#1E1E2A] bg-transparent" />
+    </div>
+  `).join('');
+
+  const notifBtn = document.getElementById('notif-toggle-label');
+  if (notifBtn) notifBtn.textContent = notifEnabled ? 'Notifikasi: Aktif' : 'Aktifkan Notifikasi';
+
   lucide.createIcons();
+}
+
+function setDueDay(k, val) {
+  const n = parseInt(val, 10);
+  if (isNaN(n) || n < 1 || n > 31) { delete dueDays[k]; } else { dueDays[k] = n; }
+  saveDueDays();
+  refreshAll();
+}
+
+// ── Notifikasi browser (H-1 tagihan bulan berjalan) ───────
+async function toggleNotif() {
+  if (!('Notification' in window)) { showToast('Browser tidak mendukung notifikasi', 'alert-triangle'); return; }
+  if (!notifEnabled) {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { showToast('Izin notifikasi ditolak', 'alert-triangle'); return; }
+    notifEnabled = true;
+  } else {
+    notifEnabled = false;
+  }
+  localStorage.setItem('notifEnabled3', notifEnabled ? '1' : '0');
+  renderSettings();
+  checkDueNotifications();
+}
+
+function checkDueNotifications() {
+  if (!notifEnabled || Notification.permission !== 'granted') return;
+  const today = new Date().toDateString();
+  if (localStorage.getItem('notifiedDate3') === today) return;
+  const i = currentMonthIndex();
+  if (i === -1 || deletedMonths.includes(i)) return;
+  const due = KEYS.filter(k => !disabledKeys.includes(k) && emVal(i, k) > 0 && !paid[paidKey(i, k)])
+    .map(k => ({ k, info: dueInfo(i, k) }))
+    .filter(x => x.info && x.info.diffDays <= 1);
+  if (due.length === 0) return;
+  due.forEach(x => {
+    new Notification('Tagihan jatuh tempo', {
+      body: `${NAMES[x.k]} — ${x.info.overdue ? 'sudah lewat jatuh tempo' : 'jatuh tempo besok/hari ini'}`,
+    });
+  });
+  localStorage.setItem('notifiedDate3', today);
+}
+
+// ── Export / Import data ──────────────────────────────────
+function exportData() {
+  const payload = {
+    paid3: paid, overrides3: overrides, disabledKeys3: disabledKeys,
+    deletedMonths3: deletedMonths, income3: income, customBills3: customBills,
+    dueDays3: dueDays, badges: JSON.parse(localStorage.getItem('badges') || '[]'),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tagihan-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Backup diunduh', 'download');
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      Object.entries(data).forEach(([key, val]) => localStorage.setItem(key, JSON.stringify(val)));
+      showToast('Data dipulihkan, memuat ulang...', 'check-circle');
+      setTimeout(() => location.reload(), 900);
+    } catch (e) {
+      showToast('File tidak valid', 'alert-triangle');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
 }
 
 // ── Init ──────────────────────────────────────────────────
@@ -580,3 +882,4 @@ buildSummary();
 buildList();
 updateGamUI(computeStats());
 updateLegend();
+checkDueNotifications();
