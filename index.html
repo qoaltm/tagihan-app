@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="id" class="dark">
+<html lang="id">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0C0C12" />
+  <meta name="theme-color" content="#F9FAFB" />
   <title>Tagihan Bulanan</title>
 
   <!-- Tailwind CDN -->
@@ -18,7 +18,6 @@
   <!-- Tailwind config -->
   <script>
     tailwind.config = {
-      darkMode: 'class',
       theme: {
         extend: {
           fontFamily: { sora: ['Sora','sans-serif'], mono: ['DM Mono','monospace'] },
@@ -28,7 +27,6 @@
             spaylater: '#3B9EFF',
             sp1:       '#A78BFA',
             sp2:       '#34D399',
-            kosan:     '#FBBF24',
             darurat:   '#F472B6',
           }
         }
@@ -38,55 +36,58 @@
 
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="min-h-screen bg-gray-50 dark:bg-[#0C0C12] text-gray-800 dark:text-gray-100 transition-colors duration-300">
+<body class="min-h-screen bg-gray-50 text-gray-800">
 
   <canvas id="confetti-canvas"></canvas>
 
   <!-- Toast -->
   <div id="toast"
     class="fixed bottom-safe left-1/2 -translate-x-1/2 z-50 opacity-0 pointer-events-none
-           bg-gray-900 dark:bg-white text-white dark:text-gray-900
+           bg-gray-900 text-white
            text-xs font-sora font-semibold px-4 py-2.5 rounded-full shadow-xl tracking-wide
            flex items-center gap-2 whitespace-nowrap">
     <i id="toast-icon" data-lucide="check-circle" class="w-3.5 h-3.5 shrink-0"></i>
     <span id="toast-text"></span>
   </div>
 
-  <div class="max-w-lg mx-auto px-4 pt-8 pb-24">
+  <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 pt-8 pb-24">
 
     <!-- Header -->
-    <div class="flex items-start justify-between mb-6">
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
       <div>
-        <p class="text-[10px] tracking-[3px] text-gray-400 dark:text-gray-600 uppercase mb-1">Peta Tagihan</p>
-        <h1 class="font-sora font-extrabold text-2xl text-gray-900 dark:text-white leading-tight">
+        <p class="text-[10px] tracking-[3px] text-gray-400 uppercase mb-1">Peta Tagihan</p>
+        <h1 class="font-sora font-extrabold text-2xl sm:text-3xl text-gray-900 leading-tight">
           Cicilan <span class="text-brand">Bulanan</span>
         </h1>
-        <p class="text-[11px] text-gray-400 dark:text-gray-600 mt-1 tracking-widest">Juni 2026 – selesai</p>
+        <p class="text-[11px] text-gray-400 mt-1 tracking-widest" id="date-range">Memuat…</p>
       </div>
-      <!-- Dark/Light Toggle -->
+
       <div class="flex items-center gap-3 mt-1">
+        <!-- Tampilan (grid density) -->
+        <label class="flex items-center gap-1.5 text-[11px] text-gray-500">
+          <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+          <select id="colsSelect" onchange="setGridCols(this.value)"
+            class="text-[11px] border border-gray-200 rounded-md py-1 pl-1.5 pr-6 bg-white focus:outline-none focus:border-brand">
+            <option value="auto">Otomatis</option>
+            <option value="1">1 kolom</option>
+            <option value="2">2 kolom</option>
+            <option value="3">3 kolom</option>
+            <option value="4">4 kolom</option>
+          </select>
+        </label>
         <button onclick="openSettings()" aria-label="Pengaturan"
-          class="text-gray-400 dark:text-gray-500 hover:text-brand">
+          class="text-gray-400 hover:text-brand">
           <i data-lucide="settings" class="w-4 h-4"></i>
         </button>
-        <i data-lucide="sun" class="w-4 h-4 text-yellow-400"></i>
-        <button id="themeToggle" onclick="toggleTheme()"
-          class="relative w-12 h-6 rounded-full bg-gray-200 dark:bg-gray-700 focus:outline-none transition-colors duration-300"
-          aria-label="Toggle tema">
-          <span id="thumb"
-            class="toggle-thumb absolute top-[3px] left-[3px] w-[18px] h-[18px] rounded-full bg-white dark:bg-brand shadow-sm dark:translate-x-6">
-          </span>
-        </button>
-        <i data-lucide="moon" class="w-4 h-4 text-indigo-400"></i>
       </div>
     </div>
 
     <!-- Gamification Card -->
-    <div class="bg-white dark:bg-[#13131C] border border-gray-200 dark:border-[#1E1E2A] rounded-2xl p-4 mb-5 shadow-sm">
+    <div class="bg-white border border-gray-200 rounded-2xl p-4 mb-5 shadow-sm max-w-2xl">
       <div class="flex items-center justify-between mb-3">
         <div>
           <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-0.5">Progress Lunas</p>
-          <p class="font-sora font-bold text-base text-gray-900 dark:text-white" id="gam-title">Mulai perjalananmu</p>
+          <p class="font-sora font-bold text-base text-gray-900" id="gam-title">Mulai perjalananmu</p>
         </div>
         <div class="text-right">
           <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-0.5">Streak</p>
@@ -102,7 +103,7 @@
           <i data-lucide="zap" class="w-3 h-3 text-brand"></i>
           <span class="text-[10px] text-gray-400">XP</span>
         </div>
-        <div class="flex-1 h-2 bg-gray-100 dark:bg-[#0f0f13] rounded-full overflow-hidden">
+        <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
           <div id="xp-bar" class="prog-fill h-full bg-brand rounded-full" style="width:0%"></div>
         </div>
         <span class="text-[10px] text-brand font-bold w-16 text-right" id="xp-label">0 / 100</span>
@@ -113,7 +114,7 @@
           <i data-lucide="calendar-check" class="w-3 h-3 text-sp2"></i>
           <span class="text-[10px] text-gray-400">Bln</span>
         </div>
-        <div class="flex-1 h-2 bg-gray-100 dark:bg-[#0f0f13] rounded-full overflow-hidden">
+        <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
           <div id="month-bar" class="prog-fill h-full bg-sp2 rounded-full" style="width:0%"></div>
         </div>
         <span class="text-[10px] text-sp2 font-bold w-16 text-right" id="month-label">0 / 21</span>
@@ -126,72 +127,78 @@
     <div id="alerts"></div>
 
     <!-- Summary Cards -->
-    <div class="grid grid-cols-2 gap-3 mb-5" id="summary"></div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5" id="summary"></div>
 
     <!-- Trend Chart -->
-    <div class="bg-white dark:bg-[#13131C] border border-gray-200 dark:border-[#1E1E2A] rounded-xl p-3 mb-5">
-      <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase mb-2 flex items-center gap-1.5">
+    <div class="bg-white border border-gray-200 rounded-xl p-3 mb-5">
+      <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-2 flex items-center gap-1.5">
         <i data-lucide="bar-chart-3" class="w-3 h-3"></i>Tren Pengeluaran
       </p>
       <div id="trend-chart"></div>
     </div>
 
-    <!-- Legend -->
-    <div id="legend" class="flex flex-wrap gap-x-4 gap-y-2 mb-4">
-      <div data-legend="kredivo"   class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-kredivo   inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Kredivo</span></div>
-      <div data-legend="spaylater" class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-spaylater inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPaylater</span></div>
-      <div data-legend="sp1"       class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sp1       inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPayPinjam 1</span></div>
-      <div data-legend="sp2"       class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sp2       inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">SPayPinjam 2</span></div>
-      <div data-legend="kosan"     class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-kosan     inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Kosan</span></div>
-      <div data-legend="darurat"   class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-darurat   inline-block"></span><span class="text-[10px] text-gray-500 dark:text-gray-400">Dana Darurat</span></div>
-    </div>
+    <!-- Legend (dirender otomatis oleh app.js, termasuk kategori baru) -->
+    <div id="legend" class="flex flex-wrap gap-x-4 gap-y-2 mb-4"></div>
 
-    <!-- Month List -->
-    <div id="list" class="space-y-2"></div>
+    <!-- Month List (grid of cards, adjustable via "Tampilan" selector above) -->
+    <div id="list" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 items-start"></div>
 
   </div>
 
   <!-- Settings Modal -->
   <div id="settings-overlay" class="hidden fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white dark:bg-[#13131C] w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto shadow-2xl">
+    <div class="bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto shadow-2xl">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="font-sora font-bold text-sm text-gray-900 dark:text-white">Pengaturan Tagihan</h2>
-        <button onclick="closeSettings()" aria-label="Tutup" class="text-gray-400 hover:text-gray-700 dark:hover:text-white">
+        <h2 class="font-sora font-bold text-sm text-gray-900">Pengaturan Tagihan</h2>
+        <button onclick="closeSettings()" aria-label="Tutup" class="text-gray-400 hover:text-gray-700">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
 
-      <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase mb-1">Kategori Tagihan</p>
-      <div id="settings-categories" class="mb-4 divide-y divide-gray-100 dark:divide-[#1e1e2a]"></div>
+      <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">Kategori Tagihan</p>
+      <div id="settings-categories" class="mb-2 divide-y divide-gray-100"></div>
+      <button onclick="addCustomCategory()"
+        class="w-full flex items-center justify-center gap-1.5 py-2 mb-4 text-[11px] font-medium text-gray-500 hover:text-brand border border-dashed border-gray-300 rounded-lg">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i>Tambah Kategori Baru
+      </button>
 
-      <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase mb-1">Tanggal Jatuh Tempo</p>
+      <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">Tanggal Jatuh Tempo</p>
       <div id="settings-due" class="mb-4"></div>
 
-      <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase mb-1">Tampilkan Bulan</p>
-      <div id="settings-months" class="mb-4 divide-y divide-gray-100 dark:divide-[#1e1e2a]"></div>
+      <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">Tampilkan Bulan</p>
+      <div id="settings-months" class="mb-4 divide-y divide-gray-100"></div>
 
-      <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase mb-1">Notifikasi</p>
+      <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">Notifikasi</p>
       <button onclick="toggleNotif()"
-        class="w-full flex items-center justify-center gap-2 py-2 mb-4 text-[12px] font-medium rounded-lg border border-gray-200 dark:border-[#1E1E2A] hover:border-brand">
+        class="w-full flex items-center justify-center gap-2 py-2 mb-4 text-[12px] font-medium rounded-lg border border-gray-200 hover:border-brand">
         <i data-lucide="bell" class="w-3.5 h-3.5"></i>
         <span id="notif-toggle-label">Aktifkan Notifikasi</span>
       </button>
-      <p class="text-[9px] text-gray-400 dark:text-gray-600 -mt-3 mb-4">Notifikasi hanya muncul saat tab ini terbuka di browser.</p>
+      <p class="text-[9px] text-gray-400 -mt-3 mb-4">Notifikasi hanya muncul saat tab ini terbuka di browser.</p>
 
-      <p class="text-[9px] tracking-[2px] text-gray-400 dark:text-gray-600 uppercase mb-1">Backup Data</p>
+      <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">Reminder WhatsApp</p>
+      <input id="wa-number-input" type="tel" placeholder="Contoh: 62812xxxxxxxx" onchange="saveWaNumber(this.value)"
+        class="w-full text-[12px] px-2.5 py-2 mb-2 rounded-lg border border-gray-200 focus:outline-none focus:border-brand" />
+      <button onclick="sendWaReminder()"
+        class="w-full flex items-center justify-center gap-1.5 py-2 mb-1 text-[12px] font-medium rounded-lg border border-gray-200 hover:border-green-500 text-green-600">
+        <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>Kirim Reminder Sekarang
+      </button>
+      <p class="text-[9px] text-gray-400 mb-4 leading-relaxed">Nomor pakai kode negara, tanpa "+" atau spasi. Tombol ini membuka WhatsApp dengan pesan reminder tagihan yang mendekati/sudah lewat jatuh tempo bulan ini — kamu tetap perlu menekan kirim di WhatsApp.</p>
+
+      <p class="text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">Backup Data</p>
       <div class="flex gap-2 mb-4">
         <button onclick="exportData()"
-          class="flex-1 flex items-center justify-center gap-1.5 py-2 text-[12px] font-medium rounded-lg border border-gray-200 dark:border-[#1E1E2A] hover:border-brand">
+          class="flex-1 flex items-center justify-center gap-1.5 py-2 text-[12px] font-medium rounded-lg border border-gray-200 hover:border-brand">
           <i data-lucide="download" class="w-3.5 h-3.5"></i>Export
         </button>
         <button onclick="document.getElementById('import-input').click()"
-          class="flex-1 flex items-center justify-center gap-1.5 py-2 text-[12px] font-medium rounded-lg border border-gray-200 dark:border-[#1E1E2A] hover:border-brand">
+          class="flex-1 flex items-center justify-center gap-1.5 py-2 text-[12px] font-medium rounded-lg border border-gray-200 hover:border-brand">
           <i data-lucide="upload" class="w-3.5 h-3.5"></i>Import
         </button>
         <input type="file" id="import-input" accept="application/json" class="hidden" onchange="importData(event)" />
       </div>
 
-      <p class="text-[10px] text-gray-400 dark:text-gray-600 mt-1 leading-relaxed">
+      <p class="text-[10px] text-gray-400 mt-1 leading-relaxed">
         Matikan kategori/bulan untuk menyembunyikannya dari daftar & total. Semua perubahan tersimpan otomatis di browser ini dan bisa dinyalakan kembali kapan saja. Export data secara berkala supaya tidak hilang kalau cache browser dibersihkan.
       </p>
     </div>

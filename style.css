@@ -10,11 +10,6 @@ body {
   bottom: calc(1.5rem + env(safe-area-inset-bottom));
 }
 
-/* ── Theme toggle thumb ─────────────────────────────── */
-.toggle-thumb {
-  transition: transform 0.25s cubic-bezier(.4,0,.2,1), background 0.2s;
-}
-
 /* ── Paid state ─────────────────────────────────────── */
 .paid-row {
   opacity: 0.55;
